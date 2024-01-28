@@ -16,19 +16,18 @@ export const authenticateJWT = (req: Request, res: Response, next: NextFunction)
     if(authHeader){
         let token = authHeader.split(' ')[1]
         // @ts-ignore-
-        jwt.verify(token, secret, (err, payload)=>{
-            if(err){
-                return res.status(403).send();
-            }
-            if (!payload) {
-                return res.sendStatus(403);
-            }
-            if (typeof payload === "string") {
-                return res.sendStatus(403);
-            }
-            req.headers["userId"] =  payload.id;
+        let decoded = jwt.verify(token, secret)
+        // @ts-ignore
+        if(decoded && decoded.userId){
+            // @ts-ignore
+            req.headers['userId'] = decoded.userId;
+
+            // Continue to the next middleware or route handler
             next();
-        })
+        }else{
+            res.sendStatus(403);
+        }
+        
         
     }else{
         res.status(403).send({

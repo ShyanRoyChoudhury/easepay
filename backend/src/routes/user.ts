@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { User } from '../db'
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
@@ -61,7 +61,7 @@ const filterInputType = z.object({
     }).optional()
 });
 
-router.post('/signup', async (req, res) => {
+router.post('/signup', async (req: Request, res: Response) => {
     const parsedInput = signupInput.safeParse(req.body);
     if(!parsedInput.success){
         res.status(422).json({
@@ -70,28 +70,47 @@ router.post('/signup', async (req, res) => {
         return;
     }
     const username = parsedInput.data.username;
-    const password = parsedInput.data.password;
+    const password = await bcrypt.hash(req.body.password, 10);
     const firstname = parsedInput.data.firstname;
     const lastname = parsedInput.data.lastname;
 
-    const user = await User.findOne({username})
+    const user = await prisma.users.findUnique({
+        where:{
+            username: username
+        }
+    })
     if(user){
         res.json({
             message: "Email already taken / Incorrect inputs"
         })
     }
     else{
-        let password = await bcrypt.hash(req.body.password, 10);
-        const newUser = await new User({firstname, lastname, username, password});
-        await newUser.save();
+        let initialBalance = Math.ceil(Math.random()*100000)
+        
+        await prisma.$transaction([
+            prisma.users.create({
+                data:{
+                    username,
+                    password,
+                    firstname,
+                    lastname
+                }
+            }),
+            prisma.account.create({
+                data:{
+                    user:{  connect: { username }},
+                    balance: initialBalance
+                }
+            })
+        ]);
+        
         res.json({
-            message: "User created successfully",
-	        token: "jwt"
+            message: "User created successfully"
         })
     }
 })
 
-router.post('/signin', async (req, res) => {
+router.post('/signin', async (req: Request, res: Response) => {
     let parsedInput = signinInput.safeParse(req.body);
     if(!parsedInput.success){
         return res.status(422).json({
@@ -102,22 +121,24 @@ router.post('/signin', async (req, res) => {
     let username = parsedInput.data.username;
     let password = parsedInput.data.password;
 
-    let user = await User.findOne({ username });
+    let user = await prisma.users.findUnique({
+        where: {
+            username
+        }
+    })
     if(!user){
         return res.json({
             error: "username not found"
         })
     }else{
-        // @ts-ignore
         let valid = await bcrypt.compare(password, user.password)
         if(!valid){
             return res.status(403).json({
                 message: "invalid password"
             });
         }
-       
         // @ts-ignore
-        let token = jwt.sign({id: user._id}, secret, {expiresIn: '1h'});
+        let token = jwt.sign({userId: user.id}, secret, {expiresIn: '1h'});
         return res.json({
             message: 'User logged in successfully',
             token
@@ -125,7 +146,7 @@ router.post('/signin', async (req, res) => {
     }
 });
 
-router.put('/', authenticateJWT, async (req, res)=>{
+router.put('/', authenticateJWT, async (req: Request, res: Response)=>{
     let parsedInput = updateInputType.safeParse(req.body);
     if(!parsedInput.success){
         return res.status(411).json({
@@ -135,19 +156,19 @@ router.put('/', authenticateJWT, async (req, res)=>{
     
     let userId = req.headers["userId"];
     let update = await User.findOneAndUpdate({_id: userId}, parsedInput.data)
+    
     if(!update){
         res.status(500).json({
             message: "Error while updating information"
         })
     }else{
-        console.log(parsedInput)
         res.send({
             message: "Updated successfully"
         });
     }
 })
 
-router.get('/bulk', authenticateJWT, async (req, res) => {
+router.get('/bulk', authenticateJWT, async (req: Request, res: Response) => {
     let parsedInput = filterInputType.safeParse(req.body);
     if(!parsedInput.success){
         return res.status(422).send({
@@ -155,7 +176,7 @@ router.get('/bulk', authenticateJWT, async (req, res) => {
         });
     }
     let userId = req.headers["userId"];
-    let filterData = prisma.users.findMany({
+    let filterData = await prisma.users.findMany({
         where:{
             OR:[
                 {firstname: parsedInput.data.firstname},

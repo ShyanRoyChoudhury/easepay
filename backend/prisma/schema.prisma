@@ -9,9 +9,16 @@ datasource db {
 
 model users {
   id        String @id @default(auto()) @map("_id") @db.ObjectId
-  v         Int    @map("__v")
   firstname String
   lastname  String
   password  String
-  username  String
+  username  String @unique
+  balance   Account[]
+}
+
+model Account {
+  id        String @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String @db.ObjectId @unique
+  balance   Int 
+  user      users @relation(fields: [userId], references: [id])
 }
